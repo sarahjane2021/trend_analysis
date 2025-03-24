@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title> Water Pressure Monitoring</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+  body {
+    text-align: center;
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background-color: #f2f2f2;
+  }
+
+  /* Container to position card on the left */
+  .container {
+    display: flex;
+    justify-content: flex-start; /* Align items to the left */
+    padding: 20px;
+    gap: 20px;
+  }
+
+  .pressure-card {
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    padding: 20px;
+    background-color: #f9f9f9;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    width: 300px;
+    max-width: 100%; /* Ensures responsiveness */
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start; /* Align content to the left */
+  }
+
+  /* Latest Pressure Styling */
+  .latest-container {
+    font-size: 18px;
+    font-weight: bold;
+    color: #007bff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 15px;
+    width: 100%;
+  }
+
+  .latest-container h4 {
+    margin: 0;
+    font-size: 14px;
+    color: #333;
+  }
+
+  .latest-container span {
+    font-size: 24px;
+  }
+
+  /* Previous Pressure Styling */
+  .previous-container {
+    font-size: 12px;
+    color: #555;
+    position: absolute;
+    bottom: 10px;
+    right: 15px;
+    text-align: right;
+  }
+
+  .previous-container span {
+    font-weight: bold;
+    color: #007bff;
+  }
+
+  /* Responsive Design */
+  @media screen and (max-width: 600px) {
+    .container {
+      justify-content: center; /* Center it on smaller screens */
+    }
+    .pressure-card {
+      width: 90%; /* Make it take more space */
+      align-items: center; /* Center content inside */
+    }
+    .previous-container {
+      position: static;
+      text-align: center;
+      margin-top: 10px;
+    }
+  }
+</style>
+</head>
+
+<body>
+  <h2>Real-Time Water Pressure Monitoring</h2>
+
+ <!-- CARD METRIC -->
+ <div class="container">
+  <div class="pressure-card">
+    <div class="latest-container">
+      <h4>Latest Pressure</h4>
+      <span id="latest-pressure">Loading...</span>
+    </div>
+    <div class="previous-container">
+      <strong>5 min ago:</strong> <span id="previous-pressure">Loading...</span>
+    </div>
+  </div>
+  <div class="pressure-card">
+    <div class="latest-container">
+      <h4>Head Loss</h4>
+      <span id="headloss">Loading...</span>
+    </div>
+    <div class="previous-container">
+      <strong>5 min ago:</strong> <span id="previous-headloss">Loading...</span>
+    </div>
+  </div>
+</div>
+
+  <div id="error-message"></div>
+  <div id="pressureChart"></div>
+</div>
+
+  <script>
+    async function fetchData() {
+        try {
+            const response = await fetch("/data");
+            const jsonData = await response.json();
+
+            if (!jsonData || !jsonData.data) throw new Error("No valid data received.");
+
+            // Update Metrics
+            document.getElementById("latest-pressure").textContent = jsonData.latest_pressure ?? "--";
+            document.getElementById("previous-pressure").textContent = jsonData.previous_pressure ?? "--";
+
+            // Store timestamps and values in arrays
+            let labels = [];
+            let actualValues = [];
+            let predictedValues = [];
+            let upperBound = [];
+            let lowerBound = [];
+
+            // Parse API response data
+            jsonData.data.forEach(entry => {
+                let utcDate = new Date(entry.time); 
+                let pstDate = new Date(utcDate.getTime() - 8 * 60 * 60 * 1000);
+
+                labels.push(pstDate);
+                actualValues.push(entry.Actual);
+                predictedValues.push(entry.Predicted);
+                upperBound.push(entry.Upper_Bound);
+                lowerBound.push(entry.Lower_Bound);
+            });
+
+            // Ensure data is sorted in chronological order
+            let sortedIndices = labels.map((_, i) => i).sort((a, b) => labels[a] - labels[b]);
+
+            labels = sortedIndices.map(i => labels[i]);
+            actualValues = sortedIndices.map(i => actualValues[i]);
+            predictedValues = sortedIndices.map(i => predictedValues[i]);
+            upperBound = sortedIndices.map(i => upperBound[i]);
+            lowerBound = sortedIndices.map(i => lowerBound[i]);
+
+            // Update the Plotly chart with corrected values
+            updatePlotlyChart(labels, actualValues, predictedValues, upperBound, lowerBound);
+        } catch (error) {
+            console.error("Error fetching data:", error);
+            document.getElementById("error-message").textContent = "Error loading data.";
+        }
+    }
+        
+    function roundToFiveMinutes(date) {
+      let minutes = Math.floor(date.getMinutes() / 5) * 5;
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), minutes, 0);
+    }
+
+    function computeTicks(labels) {
+      if (!labels.length) return { tickVals: [], tickTexts: [] };
+      let sorted = labels.sort((a, b) => a - b);
+      let minTime = new Date(sorted[0]);
+      let maxTime = new Date(sorted[sorted.length - 1]);
+      let tickVals = [];
+      let tickTexts = [];
+      let current = new Date(minTime);
+      while (current <= maxTime) {
+        tickVals.push(new Date(current));
+        let hours = String(current.getHours()).padStart(2, "0");
+        let minutes = String(current.getMinutes()).padStart(2, "0");
+        tickTexts.push(`${hours}:${minutes}`);
+        current = new Date(current.getTime() + 5 * 60 * 1000);
+      }
+      return { tickVals, tickTexts };
+    }
+
+    function updatePlotlyChart(labels, actual, predicted, upper, lower) {
+      const { tickVals, tickTexts } = computeTicks(labels);
+      let maxDate = new Date(Math.max.apply(null, labels));
+      let twoHoursAgo = new Date(maxDate.getTime() - 3 * 60 * 60 * 1000);
+
+      let traces = [
+        { x: labels, y: actual, mode: "lines", name: "Actual Pressure", line: { color: "blue" } },
+        { x: labels, y: predicted, mode: "lines", name: "Predicted Trend", line: { color: "red" } },
+        { x: labels, y: upper, mode: "lines", name: "Upper Bound (+5)", line: { color: "black", dash: "dot" } },
+        { x: labels, y: lower, mode: "lines", name: "Lower Bound (-5)", line: { color: "black", dash: "dot" } }
+      ];
+
+      let layout = {
+        height: 400,
+        autosize: true,
+        xaxis: { title: "Time", type: "date", tickvals: tickVals, ticktext: tickTexts, range: [twoHoursAgo, maxDate] },
+        yaxis: { title: "Pressure Value" },
+        dragmode: "pan",
+        plot_bgcolor: "#e0f7fa",
+        paper_bgcolor: "#f2f2f2",
+        legend: { orientation: "h", yanchor: "bottom", y: 1.15 }
+      };
+
+      Plotly.newPlot("pressureChart", traces, layout, { responsive: true });
+    }
+
+    setInterval(fetchData, 300000);
+    fetchData();
+  </script>
+</body>
+</html>
+
+
