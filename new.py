@@ -13,7 +13,7 @@ app = Flask(__name__)
 model_bslg_002 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_model.pkl")
 scaler_bslg_002 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler.pkl")
 
-model_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_model2.pkl")
+model_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_bslg_003.pkl")
 scaler_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler.pkl")
 
 API_URL = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-002&days"
