@@ -9,13 +9,25 @@ from psycopg2.extras import execute_values
 
 app = Flask(__name__)
 
-# Load the trained model and scaler 
-model = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_model2.pkl")
-scaler = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler.pkl")
+# Load the trained models and scalers for both APIs
+model_bslg_002 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_model.pkl")
+scaler_bslg_002 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler.pkl")
+
+model_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_model2.pkl")
+scaler_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler.pkl")
 
 API_URL = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-002&days"
 API_URL2 = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-003&days"
 
+def get_model_and_scaler(station):
+    """Return the appropriate model and scaler based on the station ID."""
+    if station == "BSLG-002":
+        return model_bslg_002, scaler_bslg_002
+    elif station == "BSLG-003":
+        return model_bslg_003, scaler_bslg_003
+    else:
+        return None, None
+######################
 def fetch_data(api_url):
     """Fetch real-time water pressure data from the given API and return a structured DataFrame."""
     response = requests.get(api_url)
@@ -24,16 +36,15 @@ def fetch_data(api_url):
         if data and "pressure" in data[0]:
             pressure_data = data[0]["pressure"]
 
-            # Convert API response into a DataFrame
+            # API response into a DataFrame
             df = pd.DataFrame([
                 {"time": (datetime.utcfromtimestamp(e["time"] / 1000) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"),
                  "value": e["value"]}
                 for e in pressure_data
             ])
-            return df  # Return structured DataFrame
+            return df  
     
-    return pd.DataFrame()  # Return empty DataFrame if no data
-
+    return pd.DataFrame()
 ####################
 @app.route("/")
 def index():
@@ -151,123 +162,84 @@ def save_to_db(data, head_loss_24h, anomaly_value):
 ####################
 @app.route('/data')
 def get_data():
-    # Fetch data from both APIs
-    df_bslg_002 = fetch_data(API_URL)  # For BSLG-002
-    df_bslg_003 = fetch_data(API_URL2)  # For BSLG-003
-
+    df_bslg_002 = fetch_data(API_URL)
+    df_bslg_003 = fetch_data(API_URL2)
+    
     if df_bslg_002.empty and df_bslg_003.empty:
         return jsonify({"error": "No data available from both sources"}), 500
 
-    # Process data for BSLG-002
-    df_bslg_002["time"] = pd.to_datetime(df_bslg_002["time"])
-    df_bslg_002["year"] = df_bslg_002["time"].dt.year
-    df_bslg_002["month"] = df_bslg_002["time"].dt.month
-    df_bslg_002["day"] = df_bslg_002["time"].dt.day
-    df_bslg_002["hour"] = df_bslg_002["time"].dt.hour
-    df_bslg_002["minute"] = df_bslg_002["time"].dt.minute
-    df_bslg_002["second"] = df_bslg_002["time"].dt.second
-    df_bslg_002["millisecond"] = df_bslg_002["time"].dt.microsecond // 1000
-    df_bslg_002 = df_bslg_002.rename(columns={"value": "Actual_BSLG_002"})
+    def process_data(df, station):
+        model, scaler = get_model_and_scaler(station)
+        if model is None or scaler is None:
+            return None, f"Model or scaler not found for station: {station}"
 
-    # Process data for BSLG-003
-    df_bslg_003["time"] = pd.to_datetime(df_bslg_003["time"])
-    df_bslg_003["year"] = df_bslg_003["time"].dt.year
-    df_bslg_003["month"] = df_bslg_003["time"].dt.month
-    df_bslg_003["day"] = df_bslg_003["time"].dt.day
-    df_bslg_003["hour"] = df_bslg_003["time"].dt.hour
-    df_bslg_003["minute"] = df_bslg_003["time"].dt.minute
-    df_bslg_003["second"] = df_bslg_003["time"].dt.second
-    df_bslg_003["millisecond"] = df_bslg_003["time"].dt.microsecond // 1000
-    df_bslg_003 = df_bslg_003.rename(columns={"value": "Actual_BSLG_003"})
+        df["time"] = pd.to_datetime(df["time"])
+        df["year"] = df["time"].dt.year
+        df["month"] = df["time"].dt.month
+        df["day"] = df["time"].dt.day
+        df["hour"] = df["time"].dt.hour
+        df["minute"] = df["time"].dt.minute
+        df["second"] = df["time"].dt.second
+        df["millisecond"] = df["time"].dt.microsecond // 1000
 
-    # Feature extraction and prediction (for both sources)
-    feature_columns = ["year", "month", "day", "hour", "minute", "second", "millisecond"]
-    X_bslg_002 = df_bslg_002[feature_columns]
-    X_bslg_003 = df_bslg_003[feature_columns]
+        # Renaming the column dynamically based on the station
+        df = df.rename(columns={"value": f"Actual_{station}"})
 
-    try:
-        # Predict for both BSLG-002 and BSLG-003
-        X_bslg_002_scaled = scaler.transform(X_bslg_002)
-        df_bslg_002["Predicted_BSLG_002"] = model.predict(X_bslg_002_scaled)
+        # Ensure the renaming worked before proceeding
+        if f"Actual_{station}" not in df.columns:
+            return None, f"Column 'Actual_{station}' not found after renaming in station: {station}"
 
-        X_bslg_003_scaled = scaler.transform(X_bslg_003)
-        df_bslg_003["Predicted_BSLG_003"] = model.predict(X_bslg_003_scaled)
-    except Exception as e:
-        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
+        # Feature extraction
+        feature_columns = ["year", "month", "day", "hour", "minute", "second", "millisecond"]
+        X_scaled = scaler.transform(df[feature_columns])
+        df[f"Predicted_{station}"] = model.predict(X_scaled)
 
-    # Handle anomalies (for both sources)
-    df_bslg_002["Upper_Bound_BSLG_002"] = df_bslg_002["Predicted_BSLG_002"] + 5
-    df_bslg_002["Lower_Bound_BSLG_002"] = df_bslg_002["Predicted_BSLG_002"] - 5
-    df_bslg_003["Upper_Bound_BSLG_003"] = df_bslg_003["Predicted_BSLG_003"] + 5
-    df_bslg_003["Lower_Bound_BSLG_003"] = df_bslg_003["Predicted_BSLG_003"] - 5
+        #============================================
+        df[f"Upper_Bound_{station}"] = df[f"Predicted_{station}"] + 5
+        df[f"Lower_Bound_{station}"] = df[f"Predicted_{station}"] - 5
 
-    df_bslg_002["is_anomaly_BSLG_002"] = df_bslg_002.apply(
-        lambda row: (row["Actual_BSLG_002"] is not None) and 
-                    ((row["Actual_BSLG_002"] > row["Upper_Bound_BSLG_002"]) or 
-                     (row["Actual_BSLG_002"] < row["Lower_Bound_BSLG_002"])), axis=1
-    )
+        # Detect anomalies
+        df[f"is_anomaly_{station}"] = df.apply(
+            lambda row: (row[f"Actual_{station}"] is not None) and 
+                        ((row[f"Actual_{station}"] > row[f"Upper_Bound_{station}"]) or 
+                         (row[f"Actual_{station}"] < row[f"Lower_Bound_{station}"])), axis=1
+        )
+        latest_anomaly = df[df[f"is_anomaly_{station}"]].sort_values(by="time", ascending=False).head(1)    # Extract latest anomaly (if any) for the station
 
-    df_bslg_003["is_anomaly_BSLG_003"] = df_bslg_003.apply(
-        lambda row: (row["Actual_BSLG_003"] is not None) and 
-                    ((row["Actual_BSLG_003"] > row["Upper_Bound_BSLG_003"]) or 
-                     (row["Actual_BSLG_003"] < row["Lower_Bound_BSLG_003"])), axis=1
-    )
-
-    # Extract latest anomaly (if any) for both sources
-    latest_anomaly_bslg_002 = df_bslg_002[df_bslg_002["is_anomaly_BSLG_002"]].sort_values(by="time", ascending=False).head(1)
-    latest_anomaly_bslg_003 = df_bslg_003[df_bslg_003["is_anomaly_BSLG_003"]].sort_values(by="time", ascending=False).head(1)
-
-    anomaly_info_bslg_002 = {
-        "value": latest_anomaly_bslg_002["Actual_BSLG_002"].values[0] if not latest_anomaly_bslg_002.empty else None,
-        "timestamp": latest_anomaly_bslg_002["time"].dt.strftime("%B %d, %Y %I:%M %p").values[0] if not latest_anomaly_bslg_002.empty else None
-    }
-
-    anomaly_info_bslg_003 = {
-        "value": latest_anomaly_bslg_003["Actual_BSLG_003"].values[0] if not latest_anomaly_bslg_003.empty else None,
-        "timestamp": latest_anomaly_bslg_003["time"].dt.strftime("%B %d, %Y %I:%M %p").values[0] if not latest_anomaly_bslg_003.empty else None
-    }
-
-    # Extract latest pressure and previous pressure for both sources
-    latest_pressure_bslg_002 = df_bslg_002.iloc[0]["Actual_BSLG_002"] if not df_bslg_002.empty else None
-    previous_pressure_bslg_002 = None
-    if not df_bslg_002.empty:
-        latest_time_bslg_002 = df_bslg_002.iloc[0]["time"]
-        prev_row_bslg_002 = df_bslg_002[df_bslg_002["time"] <= latest_time_bslg_002 - timedelta(minutes=5)]
-        if not prev_row_bslg_002.empty:
-            previous_pressure_bslg_002 = prev_row_bslg_002.iloc[0]["Actual_BSLG_002"]
-
-    latest_pressure_bslg_003 = df_bslg_003.iloc[0]["Actual_BSLG_003"] if not df_bslg_003.empty else None
-    previous_pressure_bslg_003 = None
-    if not df_bslg_003.empty:
-        latest_time_bslg_003 = df_bslg_003.iloc[0]["time"]
-        prev_row_bslg_003 = df_bslg_003[df_bslg_003["time"] <= latest_time_bslg_003 - timedelta(minutes=5)]
-        if not prev_row_bslg_003.empty:
-            previous_pressure_bslg_003 = prev_row_bslg_003.iloc[0]["Actual_BSLG_003"]
-
-    # Calculate head_loss_24h and calculation_time for both sources (you can keep your existing head_loss calculation)
-    head_loss_values_bslg_002 = get_headloss()  # Assuming this is a common function
-    head_loss_values_bslg_003 = get_headloss()
-
-    # Return both sources' data in the same response
-    return jsonify({
-        "data_bslg_002": {
-            "latest_pressure": latest_pressure_bslg_002,
-            "previous_pressure": previous_pressure_bslg_002,
-            "head_loss_24h": head_loss_values_bslg_002["head_loss_24h"],
-            "calculation_time": head_loss_values_bslg_002["calculation_time"],
-            "anomaly_value": anomaly_info_bslg_002["value"],
-            "anomaly_time": anomaly_info_bslg_002["timestamp"],
-            "data": df_bslg_002.replace({np.nan: None}).to_dict(orient="records")
-        },
-        "data_bslg_003": {
-            "latest_pressure": latest_pressure_bslg_003,
-            "previous_pressure": previous_pressure_bslg_003,
-            "head_loss_24h": head_loss_values_bslg_003["head_loss_24h"],
-            "calculation_time": head_loss_values_bslg_003["calculation_time"],
-            "anomaly_value": anomaly_info_bslg_003["value"],
-            "anomaly_time": anomaly_info_bslg_003["timestamp"],
-            "data": df_bslg_003.replace({np.nan: None}).to_dict(orient="records")
+        # anomaly details
+        anomaly_info = {
+            "value": latest_anomaly[f"Actual_{station}"].values[0] if not latest_anomaly.empty else None,
+            "timestamp": latest_anomaly["time"].dt.strftime("%B %d, %Y %I:%M %p").values[0] if not latest_anomaly.empty else None
         }
+
+        df = df.sort_values(by="time", ascending=False)
+        latest_pressure = df.iloc[0][f"Actual_{station}"] if not df.empty else None
+
+        current_time = df["time"].max()
+        five_minutes_ago = current_time - timedelta(minutes=5)
+        previous_pressure = df[df["time"] <= five_minutes_ago].iloc[0][f"Actual_{station}"] if not df[df["time"] <= five_minutes_ago].empty else None
+
+        return anomaly_info, df, latest_pressure, previous_pressure  # return the anomaly info, full data, and pressure values
+
+    anomaly_bslg_002, df_bslg_002_processed, latest_pressure_bslg_002, previous_pressure_bslg_002 = process_data(df_bslg_002, "BSLG-002")
+    anomaly_bslg_003, df_bslg_003_processed, latest_pressure_bslg_003, previous_pressure_bslg_003 = process_data(df_bslg_003, "BSLG-003")
+    
+    # return errors from process_data
+    if anomaly_bslg_002 is None:
+        return jsonify({"error": "Error processing BSLG-002 data"}), 500
+    if anomaly_bslg_003 is None:
+        return jsonify({"error": "Error processing BSLG-003 data"}), 500
+        #============================================
+        
+    return jsonify({
+        "anomaly_bslg_002": anomaly_bslg_002,
+        "anomaly_bslg_003": anomaly_bslg_003,
+        "latest_pressure_bslg_002": latest_pressure_bslg_002,
+        "previous_pressure_bslg_002": previous_pressure_bslg_002,
+        "latest_pressure_bslg_003": latest_pressure_bslg_003,
+        "previous_pressure_bslg_003": previous_pressure_bslg_003,
+        "data_bslg_002": df_bslg_002_processed.replace({np.nan: None}).to_dict(orient="records"),
+        "data_bslg_003": df_bslg_003_processed.replace({np.nan: None}).to_dict(orient="records")
     })
 
 if __name__ == "__main__":

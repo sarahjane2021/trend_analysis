@@ -75,11 +75,11 @@
   /* Responsive Design */
   @media screen and (max-width: 600px) {
     .container {
-      justify-content: center; /* Center it on smaller screens */
+      justify-content: center; 
     }
     .pressure-card {
-      width: 90%; /* Make it take more space */
-      align-items: center; /* Center content inside */
+      width: 100%;
+      align-items: center; 
     }
     .previous-container {
       position: static;
@@ -90,8 +90,17 @@
 </style>
 </head>
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Water Pressure Monitoring</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
 <body>
-  <h2>Real-Time Water Pressure Monitoring</h2>
+    <h2>Real-Time Water Pressure Monitoring</h2>
+
 
   <!-- CARD METRIC for BSLG-002 -->
   <div class="container">
@@ -158,122 +167,113 @@
       </div>
     </div>
   </div>
+    
+    <div id="error-message"></div>
+    <div id="pressureChartBslg002"></div>
+    <div id="pressureChartBslg003"></div>
 
-  <div id="error-message"></div>
-  <!-- Line charts for BSLG-002 and BSLG-003 -->
-  <div id="pressureChartBslg002"></div>
-  <div id="pressureChartBslg003"></div>
 
-  <script>
-    async function fetchData() {
-        try {
-            const response = await fetch("/data");
-            const jsonData = await response.json();
-
-            if (!jsonData || !jsonData.data_bslg_002 || !jsonData.data_bslg_003) throw new Error("No valid data received.");
-
-            // Update Metrics - BSLG-002
-            document.getElementById("latest-pressure-bslg-002").textContent = jsonData.data_bslg_002.latest_pressure ?? "--";
-            document.getElementById("previous-pressure-bslg-002").textContent = jsonData.data_bslg_002.previous_pressure ?? "--";
-            document.getElementById("headloss-bslg-002").textContent = jsonData.data_bslg_002.head_loss_24h ?? "--";
-            document.getElementById("calculation-time-bslg-002").textContent = jsonData.data_bslg_002.calculation_time;
-            document.getElementById("anomaly-value-bslg-002").textContent = jsonData.data_bslg_002.anomaly_value ?? "--";
-            document.getElementById("anomaly-time-bslg-002").textContent = jsonData.data_bslg_002.anomaly_time ?? "--";
-
-            // Update Metrics - BSLG-003
-            document.getElementById("latest-pressure-bslg-003").textContent = jsonData.data_bslg_003.latest_pressure ?? "--";
-            document.getElementById("previous-pressure-bslg-003").textContent = jsonData.data_bslg_003.previous_pressure ?? "--";
-            document.getElementById("headloss-bslg-003").textContent = jsonData.data_bslg_003.head_loss_24h ?? "--";
-            document.getElementById("calculation-time-bslg-003").textContent = jsonData.data_bslg_003.calculation_time;
-            document.getElementById("anomaly-value-bslg-003").textContent = jsonData.data_bslg_003.anomaly_value ?? "--";
-            document.getElementById("anomaly-time-bslg-003").textContent = jsonData.data_bslg_003.anomaly_time ?? "--";
-
-            // Process Data for BSLG-002
-            let labels_bslg_002 = [];
-            let actualValues_bslg_002 = [];
-            let predictedValues_bslg_002 = [];
-            let upperBound_bslg_002 = [];
-            let lowerBound_bslg_002 = [];
-
-            jsonData.data_bslg_002.data.forEach(entry => {
-                let utcDate = new Date(entry.time); 
-                let pstDate = new Date(utcDate.getTime() - 8 * 60 * 60 * 1000);  // Convert to PST
-
-                labels_bslg_002.push(pstDate);
-                actualValues_bslg_002.push(entry.Actual_BSLG_002);
-                predictedValues_bslg_002.push(entry.Predicted_BSLG_002);
-                upperBound_bslg_002.push(entry.Upper_Bound_BSLG_002);
-                lowerBound_bslg_002.push(entry.Lower_Bound_BSLG_002);
-            });
-
-            // Process Data for BSLG-003
-            let labels_bslg_003 = [];
-            let actualValues_bslg_003 = [];
-            let predictedValues_bslg_003 = [];
-            let upperBound_bslg_003 = [];
-            let lowerBound_bslg_003 = [];
+    <script>
+      async function fetchData() {
+          try {
+              const response = await fetch("/data");
+              const jsonData = await response.json();
+              if (!jsonData) throw new Error("No valid data received.");
+  
+            // latest, 5mins pressure data
+              document.getElementById("latest-pressure-bslg-002").textContent = jsonData.latest_pressure_bslg_002 ?? "--";
+              document.getElementById("previous-pressure-bslg-002").textContent = jsonData.previous_pressure_bslg_002 ?? "--";
+              document.getElementById("latest-pressure-bslg-003").textContent = jsonData.latest_pressure_bslg_003 ?? "--";
+              document.getElementById("previous-pressure-bslg-003").textContent = jsonData.previous_pressure_bslg_003 ?? "--";
             
-            jsonData.data_bslg_003.data.forEach(entry => {
-                let utcDate = new Date(entry.time); 
-                let pstDate = new Date(utcDate.getTime() - 8 * 60 * 60 * 1000);  // Convert to PST
-
-                labels_bslg_003.push(pstDate);
-                actualValues_bslg_003.push(entry.Actual_BSLG_003);
-                predictedValues_bslg_003.push(entry.Predicted_BSLG_003);
-                upperBound_bslg_003.push(entry.Upper_Bound_BSLG_003);
-                lowerBound_bslg_003.push(entry.Lower_Bound_BSLG_003);
-            });
-
-            // Ensure data is sorted in chronological order for both BSLG-002 and BSLG-003
-            let sortedIndices_bslg_002 = labels_bslg_002.map((_, i) => i).sort((a, b) => labels_bslg_002[a] - labels_bslg_002[b]);
-            let sortedIndices_bslg_003 = labels_bslg_003.map((_, i) => i).sort((a, b) => labels_bslg_003[a] - labels_bslg_003[b]);
-
-            labels_bslg_002 = sortedIndices_bslg_002.map(i => labels_bslg_002[i]);
-            actualValues_bslg_002 = sortedIndices_bslg_002.map(i => actualValues_bslg_002[i]);
-            predictedValues_bslg_002 = sortedIndices_bslg_002.map(i => predictedValues_bslg_002[i]);
-            upperBound_bslg_002 = sortedIndices_bslg_002.map(i => upperBound_bslg_002[i]);
-            lowerBound_bslg_002 = sortedIndices_bslg_002.map(i => lowerBound_bslg_002[i]);
-
-            labels_bslg_003 = sortedIndices_bslg_003.map(i => labels_bslg_003[i]);
-            actualValues_bslg_003 = sortedIndices_bslg_003.map(i => actualValues_bslg_003[i]);
-            predictedValues_bslg_003 = sortedIndices_bslg_003.map(i => predictedValues_bslg_003[i]);
-            upperBound_bslg_003 = sortedIndices_bslg_003.map(i => upperBound_bslg_003[i]);
-            lowerBound_bslg_003 = sortedIndices_bslg_003.map(i => lowerBound_bslg_003[i]);
-
-            // Update Plotly charts for both BSLG-002 and BSLG-003
-            updatePlotlyChart(labels_bslg_002, actualValues_bslg_002, predictedValues_bslg_002, upperBound_bslg_002, lowerBound_bslg_002, "pressureChartBslg002");
-            updatePlotlyChart(labels_bslg_003, actualValues_bslg_003, predictedValues_bslg_003, upperBound_bslg_003, lowerBound_bslg_003, "pressureChartBslg003");
-
-        } catch (error) {
-            console.error("Error fetching data:", error);
-            document.getElementById("error-message").textContent = "Error loading data.";
-        }
-    }
-
-    function roundToFiveMinutes(date) {
+              // ANOMALY
+              document.getElementById("anomaly-value-bslg-002").textContent = jsonData.anomaly_bslg_002.value ?? "--";
+              document.getElementById("anomaly-time-bslg-002").textContent = jsonData.anomaly_bslg_002.timestamp ?? "--";
+              document.getElementById("anomaly-value-bslg-003").textContent = jsonData.anomaly_bslg_003.value ?? "--";
+              document.getElementById("anomaly-time-bslg-003").textContent = jsonData.anomaly_bslg_003.timestamp ?? "--";
+              
+              processAndRenderChart(jsonData.data_bslg_002, "pressureChartBslg002", "BSLG-002");
+              processAndRenderChart(jsonData.data_bslg_003, "pressureChartBslg003", "BSLG-003");
+          } catch (error) {
+              console.error("Error fetching data:", error);
+          }
+      }
+  
+      function formatToPST(utcTimestamp) {
+          if (!utcTimestamp) return "--";
+          const utcDate = new Date(utcTimestamp);
+          return new Date(utcDate.getTime() - 8 * 60 * 60 * 1000);  // Convert to PST
+      }
+  
+      function processAndRenderChart(data, chartId, station) {
+          let labels = [];
+          let actualValues = [];
+          let predictedValues = [];
+          let upperBounds = [];
+          let lowerBounds = [];
+  
+          data.forEach(entry => {
+              let pstDate = formatToPST(entry.time);
+              labels.push(pstDate);
+              actualValues.push(entry[`Actual_${station}`]);
+              predictedValues.push(entry[`Predicted_${station}`]);
+              upperBounds.push(entry[`Upper_Bound_${station}`]);
+              lowerBounds.push(entry[`Lower_Bound_${station}`]);
+          });
+  
+          // Sort data chronologically
+          let sortedIndices = labels.map((_, i) => i).sort((a, b) => labels[a] - labels[b]);
+          labels = sortedIndices.map(i => labels[i]);
+          actualValues = sortedIndices.map(i => actualValues[i]);
+          predictedValues = sortedIndices.map(i => predictedValues[i]);
+          upperBounds = sortedIndices.map(i => upperBounds[i]);
+          lowerBounds = sortedIndices.map(i => lowerBounds[i]);
+  
+          updatePlotlyChart(labels, actualValues, predictedValues, upperBounds, lowerBounds, chartId, station);
+      }
+  
+      function updatePlotlyChart(labels, actual, predicted, upper, lower, chartId, station) {
+          let traces = [
+              { x: labels, y: actual, mode: "lines", name: "Actual Pressure", line: { color: "blue" } },
+              { x: labels, y: predicted, mode: "lines", name: "Predicted Pressure", line: { color: "red" } },
+              { x: labels, y: upper, mode: "lines", name: "Upper Bound", line: { color: "black", dash: "dot" } },
+              { x: labels, y: lower, mode: "lines", name: "Lower Bound", line: { color: "black", dash: "dot" } }
+          ];
+  
+          let layout = {
+              title: `Water Pressure Trends - ${station}`,
+              height: 400,
+              xaxis: { title: "Time", type: "date" },
+              yaxis: { title: "Pressure Value" },
+              dragmode: "pan",
+              plot_bgcolor: "#e0f7fa",
+              paper_bgcolor: "#f2f2f2"
+          };
+  
+          Plotly.newPlot(chartId, traces, layout, { responsive: true });
+      }
+      function roundToFiveMinutes(date) {
       let minutes = Math.floor(date.getMinutes() / 5) * 5;
       return new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), minutes, 0);
-    }
-
-    function computeTicks(labels) {
-      if (!labels.length) return { tickVals: [], tickTexts: [] };
-      let sorted = labels.sort((a, b) => a - b);
-      let minTime = new Date(sorted[0]);
-      let maxTime = new Date(sorted[sorted.length - 1]);
-      let tickVals = [];
-      let tickTexts = [];
-      let current = new Date(minTime);
-      while (current <= maxTime) {
-        tickVals.push(new Date(current));
-        let hours = String(current.getHours()).padStart(2, "0");
-        let minutes = String(current.getMinutes()).padStart(2, "0");
-        tickTexts.push(`${hours}:${minutes}`);
-        current = new Date(current.getTime() + 5 * 60 * 1000);
+    } 
+      function computeTicks(labels) {
+          if (!labels.length) return { tickVals: [], tickTexts: [] };
+          let sorted = labels.sort((a, b) => a - b);
+          let minTime = new Date(sorted[0]);
+          let maxTime = new Date(sorted[sorted.length - 1]);
+          let tickVals = [], tickTexts = [];
+          let current = new Date(minTime);
+          while (current <= maxTime) {
+              tickVals.push(new Date(current));
+              let hours = String(current.getHours()).padStart(2, "0");
+              let minutes = String(current.getMinutes()).padStart(2, "0");
+              tickTexts.push(`${hours}:${minutes}`);
+              current = new Date(current.getTime() + 5 * 60 * 1000);
+          }
+          return { tickVals, tickTexts };
       }
-      return { tickVals, tickTexts };
-    }
-
-    function updatePlotlyChart(labels, actual, predicted, upper, lower, chartId) {
+  
+      function updatePlotlyChart(labels, actual, predicted, upper, lower, chartId) {
       const { tickVals, tickTexts } = computeTicks(labels);
       let maxDate = new Date(Math.max.apply(null, labels));
       let twoHoursAgo = new Date(maxDate.getTime() - 3 * 60 * 60 * 1000);
@@ -290,7 +290,7 @@
         title: { 
           text: chartId === "pressureChartBslg002" ? "Water Pressure Trends - BSLG-002" : "Water Pressure Trends - BSLG-003",
           font: { size: 18 },
-          pad: { b: 30 }  // Increase bottom padding to prevent overlap
+          pad: { b: 30 }  // bottom padding prevent overlap
         },
 
         height: 400,
@@ -312,8 +312,9 @@
       Plotly.newPlot(chartId, traces, layout, { responsive: true });
     }
 
-    setInterval(fetchData, 300000);
-    fetchData();
+      fetchData();
+      setInterval(fetchData, 120000);
   </script>
+  
 </body>
 </html>
