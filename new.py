@@ -10,14 +10,14 @@ app = Flask(__name__)
 
 # Load the trained models and scalers for both APIs
 model_bslg_002 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_model.pkl")
-scaler_bslg_002 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler.pkl")
+scaler_bslg_002 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler_002.pkl")
 
 model_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_bslg_003.pkl")
-scaler_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler.pkl")
+scaler_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler_003.pkl")
 
 API_URL = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-002&days"
 API_URL2 = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-003&days"
-
+ 
 def get_model_and_scaler(station):
     """Return the appropriate model and scaler based on the station ID."""
     if station == "BSLG-002":
@@ -93,14 +93,16 @@ def get_headloss():
             conn.close()
 
 ####################
+#DATABASE_URL = "postgresql://admin:password@209.38.56.184:5432/postgres"
+
 def save_to_db(data, head_loss_24h, anomaly_value):
     """Store actual, predicted pressure, and head loss values in PostgreSQL."""
     try:
         conn = psycopg2.connect(
-            host="localhost",
-            database="water",
-            user="postgres",
-            password="123",
+            host="209.38.56.184",
+            database="postgres",
+            user="admin",
+            password="password",
             port=5432
         )
         cur = conn.cursor()
@@ -114,18 +116,25 @@ def save_to_db(data, head_loss_24h, anomaly_value):
             upper_bound NUMERIC,
             lower_bound NUMERIC,
             head_loss_24h NUMERIC,
-            anomaly_value NUMERIC  -- New column for anomaly
+            anomaly_value NUMERIC,
+            station_id VARCHAR(10) 
         );
         """)
 
         insert_query = """
-        INSERT INTO water_pressure (time, actual_pressure, predicted_pressure, upper_bound, lower_bound, head_loss_24h, anomaly_value)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO water_pressure (time, actual_pressure, predicted_pressure, upper_bound, lower_bound, head_loss_24h, anomaly_value, station_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (time) DO NOTHING;
         """
+        # Extract anomaly values
+        anomaly_bslg_002 = data.get("anomaly_bslg_002", {})
+        anomaly_bslg_003 = data.get("anomaly_bslg_003", {})
+        
+        anomaly_value_bslg_002 = anomaly_bslg_002.get("value", None)
+        anomaly_value_bslg_003 = anomaly_bslg_003.get("value", None)
 
-        cur.execute("SELECT time FROM water_pressure")
-        existing_timestamps = {row[0] for row in cur.fetchall()}  # Store existing timestamps to prevent duplicates
+        #cur.execute("SELECT time FROM water_pressure")
+        #existing_timestamps = {row[0] for row in cur.fetchall()}  # Store existing timestamps to prevent duplicates
 
         for row in data:
             if row.get("Actual") is None:
@@ -149,12 +158,56 @@ def save_to_db(data, head_loss_24h, anomaly_value):
                 row["anomaly_value"] if row["is_anomaly"] else None
             ))
 
+
+        # Process and save data for BSLG-002
+        for row in data.get("data_bslg_002", []):
+            if row.get("Actual_BSLG-002") is None:
+                continue  # Skip if no actual pressure data
+
+            utc_time = pd.to_datetime(row["time"])
+
+            print(f"✅ Inserting: {utc_time}, {row['Actual_BSLG-002']}, {row['Predicted_BSLG-002']}, {head_loss_24h}, {anomaly_value_bslg_002}")
+
+            # Insert data with station_id 'BSLG-002'
+            cur.execute(insert_query, (
+                utc_time,
+                row["Actual_BSLG-002"],
+                row["Predicted_BSLG-002"],
+                row["Upper_Bound_BSLG-002"],
+                row["Lower_Bound_BSLG-002"],
+                head_loss_24h, 
+                anomaly_value_bslg_002,
+                "BSLG-002"  # Station ID
+            ))
+
+        # Process and save data for BSLG-003
+        for row in data.get("data_bslg_003", []):
+            if row.get("Actual_BSLG-003") is None:
+                continue  # Skip if no actual pressure data
+
+            utc_time = pd.to_datetime(row["time"])
+
+            print(f"✅ Inserting: {utc_time}, {row['Actual_BSLG-003']}, {row['Predicted_BSLG-003']}, {head_loss_24h}, {anomaly_value_bslg_003}")
+
+            # Insert data with station_id 'BSLG-003'
+            cur.execute(insert_query, (
+                utc_time,
+                row["Actual_BSLG-003"],
+                row["Predicted_BSLG-003"],
+                row["Upper_Bound_BSLG-003"],
+                row["Lower_Bound_BSLG-003"],
+                head_loss_24h, 
+                anomaly_value_bslg_003,
+                "BSLG-003"  # Station ID
+            ))
+
         conn.commit()
         cur.close()
         conn.close()
 
         print("🚀 Data successfully saved!")
-
+        return "Data successfully saved!", 200
+    
     except Exception as e:
         print(f"❌ Database error: {e}")
 
