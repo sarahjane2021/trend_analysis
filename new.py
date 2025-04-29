@@ -15,8 +15,8 @@ scaler_bslg_002 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scal
 model_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\random_forest_bslg_003.pkl")
 scaler_bslg_003 = joblib.load(r"C:\Users\Sarah\Desktop\trend_analysis\model\scaler_003.pkl")
 
-API_URL = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-002&days"
-API_URL2 = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-003&days"
+API_URL = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-002&days="
+API_URL2 = "https://neptune.kyogojo.com/api/statistics/get-multiple?stations=BSLG-003&days="
  
 def get_model_and_scaler(station):
     """Return the appropriate model and scaler based on the station ID."""
@@ -51,52 +51,8 @@ def index():
     return render_template("index.html")
 
 ####################
-
+@app.route('/get_headloss')
 def get_headloss():
-    """Fetch head loss values for 24 hours ago and store the calculation timestamp."""
-    conn = None
-    cur = None
-    try:
-        conn = psycopg2.connect(host="localhost", database="water", user="postgres", password="123", port=5432)
-        cur = conn.cursor()
-
-        query = """
-        SELECT 
-            ROUND(CAST((y.actual_pressure - t.actual_pressure) / 9810.0 AS NUMERIC), 6) AS head_loss_24h
-        FROM 
-            (SELECT actual_pressure FROM water_pressure 
-            WHERE time <= NOW() - INTERVAL '1 day' 
-            ORDER BY time DESC LIMIT 1) y,
-            (SELECT actual_pressure FROM water_pressure 
-            ORDER BY time DESC LIMIT 1) t;
-        """
-        
-        cur.execute(query)
-        result = cur.fetchone()
-        
-        # Get current timestamp
-        head_loss_time = datetime.now().strftime("%B %d, %Y %I:%M %p")  # Example: April 1, 2025 9:45 AM
-        
-        return {
-            "head_loss_24h": result[0] if result else None,
-            "calculation_time": head_loss_time
-        }
-
-    except Exception as e:
-        print(f"Database error: {e}")
-        return {"head_loss_24h": None, "calculation_time": None}
-
-    finally:
-        if cur:
-            cur.close()
-        if conn:
-            conn.close()
-
-####################
-#DATABASE_URL = "postgresql://admin:password@209.38.56.184:5432/postgres"
-
-def save_to_db(data, head_loss_24h, anomaly_value):
-    """Store actual, predicted pressure, and head loss values in PostgreSQL."""
     try:
         conn = psycopg2.connect(
             host="209.38.56.184",
@@ -105,111 +61,84 @@ def save_to_db(data, head_loss_24h, anomaly_value):
             password="password",
             port=5432
         )
-        cur = conn.cursor()
-
-        # Ensure table has the new column for anomaly_value
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS water_pressure (
-            time TIMESTAMP PRIMARY KEY,
-            actual_pressure NUMERIC,
-            predicted_pressure NUMERIC,
-            upper_bound NUMERIC,
-            lower_bound NUMERIC,
-            head_loss_24h NUMERIC,
-            anomaly_value NUMERIC,
-            station_id VARCHAR(10) 
-        );
-        """)
-
-        insert_query = """
-        INSERT INTO water_pressure (time, actual_pressure, predicted_pressure, upper_bound, lower_bound, head_loss_24h, anomaly_value, station_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (time) DO NOTHING;
-        """
-        # Extract anomaly values
-        anomaly_bslg_002 = data.get("anomaly_bslg_002", {})
-        anomaly_bslg_003 = data.get("anomaly_bslg_003", {})
+        cursor = conn.cursor()
         
-        anomaly_value_bslg_002 = anomaly_bslg_002.get("value", None)
-        anomaly_value_bslg_003 = anomaly_bslg_003.get("value", None)
-
-        #cur.execute("SELECT time FROM water_pressure")
-        #existing_timestamps = {row[0] for row in cur.fetchall()}  # Store existing timestamps to prevent duplicates
-
-        for row in data:
-            if row.get("Actual") is None:
-                continue  # Skip if no actual pressure data
-
-            utc_time = pd.to_datetime(row["time"])
-
-            if utc_time in existing_timestamps:
-                print(f"⏩ Skipping duplicate timestamp: {utc_time}")
-                continue  # Skip duplicate timestamps
-
-            print(f"✅ Inserting: {utc_time}, {row['Actual']}, {row['Predicted']}, {head_loss_24h}, {anomaly_value}")
-
-            cur.execute(insert_query, (
-                utc_time,
-                row["Actual"],
-                row["Predicted"],
-                row["Upper_Bound"],
-                row["Lower_Bound"],
-                head_loss_24h, 
-                row["anomaly_value"] if row["is_anomaly"] else None
-            ))
-
-
-        # Process and save data for BSLG-002
-        for row in data.get("data_bslg_002", []):
-            if row.get("Actual_BSLG-002") is None:
-                continue  # Skip if no actual pressure data
-
-            utc_time = pd.to_datetime(row["time"])
-
-            print(f"✅ Inserting: {utc_time}, {row['Actual_BSLG-002']}, {row['Predicted_BSLG-002']}, {head_loss_24h}, {anomaly_value_bslg_002}")
-
-            # Insert data with station_id 'BSLG-002'
-            cur.execute(insert_query, (
-                utc_time,
-                row["Actual_BSLG-002"],
-                row["Predicted_BSLG-002"],
-                row["Upper_Bound_BSLG-002"],
-                row["Lower_Bound_BSLG-002"],
-                head_loss_24h, 
-                anomaly_value_bslg_002,
-                "BSLG-002"  # Station ID
-            ))
-
-        # Process and save data for BSLG-003
-        for row in data.get("data_bslg_003", []):
-            if row.get("Actual_BSLG-003") is None:
-                continue  # Skip if no actual pressure data
-
-            utc_time = pd.to_datetime(row["time"])
-
-            print(f"✅ Inserting: {utc_time}, {row['Actual_BSLG-003']}, {row['Predicted_BSLG-003']}, {head_loss_24h}, {anomaly_value_bslg_003}")
-
-            # Insert data with station_id 'BSLG-003'
-            cur.execute(insert_query, (
-                utc_time,
-                row["Actual_BSLG-003"],
-                row["Predicted_BSLG-003"],
-                row["Upper_Bound_BSLG-003"],
-                row["Lower_Bound_BSLG-003"],
-                head_loss_24h, 
-                anomaly_value_bslg_003,
-                "BSLG-003"  # Station ID
-            ))
-
-        conn.commit()
-        cur.close()
+        # Get latest head loss data for each station
+        cursor.execute("""
+            SELECT station_id, latest_time, head_loss
+            FROM head_loss_view
+            ORDER BY latest_time DESC
+        """)
+        
+        rows = cursor.fetchall()
         conn.close()
-
-        print("🚀 Data successfully saved!")
-        return "Data successfully saved!", 200
+        
+        # Structure the result
+        result = {}
+        for station_id, latest_time, head_loss in rows:
+            result[station_id] = {
+                'head_loss': head_loss,
+                'latest_time': latest_time.strftime("%Y-%m-%d %H:%M:%S") if latest_time else None
+            }
+        
+        return jsonify(result)
     
     except Exception as e:
-        print(f"❌ Database error: {e}")
+        return jsonify({'error': str(e)})
+
+####################
+def save_to_db(data, station, conn):
+    """Create table if not exists and save valid pressure data to the PostgreSQL database."""
+    cur = conn.cursor()
+
+    # Create table if not exists
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS water_pressure (
+            id SERIAL PRIMARY KEY,
+            station_id TEXT,
+            time TIMESTAMP UNIQUE,
+            actual_pressure DOUBLE PRECISION,
+            predicted_pressure DOUBLE PRECISION,
+            upper_bound DOUBLE PRECISION,
+            lower_bound DOUBLE PRECISION,
+            is_anomaly BOOLEAN
+        );
+    """)
+
+    inserted_count = 0
+
+    # Insert records safely
+    for record in data:
+        actual = record.get(f"Actual_{station}")
+        if actual is not None:
+            try:
+                cur.execute("""
+                    INSERT INTO water_pressure (
+                        station_id, time, actual_pressure, predicted_pressure,
+                        upper_bound, lower_bound, is_anomaly
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (time) DO NOTHING;
+                """, (
+                    station,
+                    datetime.strptime(record["time"], "%a, %d %b %Y %H:%M:%S GMT"),
+                    actual,
+                    record.get(f"Predicted_{station}"),
+                    record.get(f"Upper_Bound_{station}"),
+                    record.get(f"Lower_Bound_{station}"),
+                    record.get(f"is_anomaly_{station}")
+                ))
+
+                if cur.rowcount == 1:  # row was inserted
+                    inserted_count += 1
+
+            except Exception as e:
+                print(f"[ERROR] Failed insert for {record['time']} - {station}: {e}")
+
+    conn.commit()
+    cur.close()
+
+    # ✅ Final summary log for this station
+    print(f"[SUMMARY] Station: {station} → Inserted: {inserted_count} → Time: {record['time']}")
 
 ####################
 @app.route('/data')
@@ -306,6 +235,17 @@ def get_data():
     # Process Both Stations
     anomaly_002, data_002, latest_002, prev_002 = process_data(df_bslg_002, "BSLG-002")[:4]
     anomaly_003, data_003, latest_003, prev_003 = process_data(df_bslg_003, "BSLG-003")[:4]
+
+    # Save valid data to DB
+    try:
+        conn = psycopg2.connect(host="209.38.56.184", database="postgres", user="admin", password="password", port=5432)
+        save_to_db(data_002, "BSLG-002", conn)
+        save_to_db(data_003, "BSLG-003", conn)
+    except Exception as e:
+        print(f"Error saving to DB: {e}")
+    finally:
+        if conn:
+            conn.close()
 
     # Error Handling
     if anomaly_002 is None:

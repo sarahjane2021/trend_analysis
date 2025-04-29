@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title> Water Pressure Monitoring</title>
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-3.0.1.min.js"></script>
   <style>
   body {
     text-align: center;
@@ -31,7 +31,6 @@
     max-width: 100%; /* Ensures responsiveness */
     position: relative;
     display: flex;
-    
     flex-direction: column;
     align-items: center; /* Align content to the left */
   }
@@ -76,11 +75,11 @@
   /* Responsive Design */
   @media screen and (max-width: 600px) {
     .container {
-      justify-content: center; 
+      justify-content: center; /* Center it on smaller screens */
     }
     .pressure-card {
-      width: 100%;
-      align-items: center; 
+      width: 90%; /* Make it take more space */
+      align-items: center; /* Center content inside */
     }
     .previous-container {
       position: static;
@@ -91,17 +90,8 @@
 </style>
 </head>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Water Pressure Monitoring</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-</head>
 <body>
-    <h2>Real-Time Water Pressure Monitoring</h2>
-
+  <h2>Real-Time Water Pressure Monitoring</h2>
 
   <!-- CARD METRIC for BSLG-002 -->
   <div class="container">
@@ -168,44 +158,46 @@
       </div>
     </div>
   </div>
-    
-    <div id="error-message"></div>
-    <div id="pressureChartBslg002"></div>
-    <div id="pressureChartBslg003"></div>
 
+  <div id="error-message"></div>
+  <!-- Line charts for BSLG-002 and BSLG-003 -->
+  <div id="pressureChartBslg002"></div>
+  <div id="pressureChartBslg003"></div>
 
-    <script>
-      async function fetchData() {
-          try {
-              const response = await fetch("/data");
-              const jsonData = await response.json();
-              if (!jsonData) throw new Error("No valid data received.");
-  
-            // latest, 5mins pressure data
-              document.getElementById("latest-pressure-bslg-002").textContent = jsonData.latest_pressure_bslg_002 ?? "--";
-              document.getElementById("previous-pressure-bslg-002").textContent = jsonData.previous_pressure_bslg_002 ?? "--";
-              document.getElementById("latest-pressure-bslg-003").textContent = jsonData.latest_pressure_bslg_003 ?? "--";
-              document.getElementById("previous-pressure-bslg-003").textContent = jsonData.previous_pressure_bslg_003 ?? "--";
-            
-              // ANOMALY
-              document.getElementById("anomaly-value-bslg-002").textContent = jsonData.anomaly_bslg_002.value ?? "--";
-              document.getElementById("anomaly-time-bslg-002").textContent = jsonData.anomaly_bslg_002.timestamp ?? "--";
-              document.getElementById("anomaly-value-bslg-003").textContent = jsonData.anomaly_bslg_003.value ?? "--";
-              document.getElementById("anomaly-time-bslg-003").textContent = jsonData.anomaly_bslg_003.timestamp ?? "--";
-              
-              processAndRenderChart(jsonData.data_bslg_002, "pressureChartBslg002", "BSLG-002");
+  <script>
+
+    async function fetchData() {
+        try {
+            const response = await fetch("/data");
+            const jsonData = await response.json();
+
+            if (!jsonData || !jsonData.data_bslg_002 || !jsonData.data_bslg_003) {
+                throw new Error("No valid data received.");
+            }
+
+          // latest, 5mins pressure data
+          document.getElementById("latest-pressure-bslg-002").textContent = jsonData.latest_pressure_bslg_002 ?? "--";
+          document.getElementById("previous-pressure-bslg-002").textContent = jsonData.previous_pressure_bslg_002 ?? "--";
+          document.getElementById("latest-pressure-bslg-003").textContent = jsonData.latest_pressure_bslg_003 ?? "--";
+          document.getElementById("previous-pressure-bslg-003").textContent = jsonData.previous_pressure_bslg_003 ?? "--";
+          
+          // ANOMALY
+          document.getElementById("anomaly-value-bslg-002").textContent = jsonData.anomaly_bslg_002.value ?? "--";
+          document.getElementById("anomaly-time-bslg-002").textContent = jsonData.anomaly_bslg_002.timestamp ?? "--";
+          document.getElementById("anomaly-value-bslg-003").textContent = jsonData.anomaly_bslg_003.value ?? "--";
+          document.getElementById("anomaly-time-bslg-003").textContent = jsonData.anomaly_bslg_003.timestamp ?? "--";
+
+          processAndRenderChart(jsonData.data_bslg_002, "pressureChartBslg002", "BSLG-002");
               processAndRenderChart(jsonData.data_bslg_003, "pressureChartBslg003", "BSLG-003");
           } catch (error) {
               console.error("Error fetching data:", error);
           }
-      }
-  
+      }  
       function formatToPST(utcTimestamp) {
           if (!utcTimestamp) return "--";
           const utcDate = new Date(utcTimestamp);
           return new Date(utcDate.getTime() - 8 * 60 * 60 * 1000);  // Convert to PST
       }
-  
       function processAndRenderChart(data, chartId, station) {
           let labels = [];
           let actualValues = [];
@@ -221,7 +213,7 @@
               upperBounds.push(entry[`Upper_Bound_${station}`]);
               lowerBounds.push(entry[`Lower_Bound_${station}`]);
           });
-  
+          
           // Sort data chronologically
           let sortedIndices = labels.map((_, i) => i).sort((a, b) => labels[a] - labels[b]);
           labels = sortedIndices.map(i => labels[i]);
@@ -232,7 +224,7 @@
   
           updatePlotlyChart(labels, actualValues, predictedValues, upperBounds, lowerBounds, chartId, station);
       }
-  
+      
       function updatePlotlyChart(labels, actual, predicted, upper, lower, chartId, station) {
           let traces = [
               { x: labels, y: actual, mode: "lines", name: "Actual Pressure", line: { color: "blue" } },
@@ -250,31 +242,35 @@
               plot_bgcolor: "#e0f7fa",
               paper_bgcolor: "#f2f2f2"
           };
+
   
           Plotly.newPlot(chartId, traces, layout, { responsive: true });
       }
-      function roundToFiveMinutes(date) {
+  /////////
+    function roundToFiveMinutes(date) {
       let minutes = Math.floor(date.getMinutes() / 5) * 5;
       return new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), minutes, 0);
-    } 
-      function computeTicks(labels) {
-          if (!labels.length) return { tickVals: [], tickTexts: [] };
-          let sorted = labels.sort((a, b) => a - b);
-          let minTime = new Date(sorted[0]);
-          let maxTime = new Date(sorted[sorted.length - 1]);
-          let tickVals = [], tickTexts = [];
-          let current = new Date(minTime);
-          while (current <= maxTime) {
-              tickVals.push(new Date(current));
-              let hours = String(current.getHours()).padStart(2, "0");
-              let minutes = String(current.getMinutes()).padStart(2, "0");
-              tickTexts.push(`${hours}:${minutes}`);
-              current = new Date(current.getTime() + 5 * 60 * 1000);
-          }
-          return { tickVals, tickTexts };
+    }
+
+    function computeTicks(labels) {
+      if (!labels.length) return { tickVals: [], tickTexts: [] };
+      let sorted = labels.sort((a, b) => a - b);
+      let minTime = new Date(sorted[0]);
+      let maxTime = new Date(sorted[sorted.length - 1]);
+      let tickVals = [];
+      let tickTexts = [];
+      let current = new Date(minTime);
+      while (current <= maxTime) {
+        tickVals.push(new Date(current));
+        let hours = String(current.getHours()).padStart(2, "0");
+        let minutes = String(current.getMinutes()).padStart(2, "0");
+        tickTexts.push(`${hours}:${minutes}`);
+        current = new Date(current.getTime() + 5 * 60 * 1000);
       }
-  
-      function updatePlotlyChart(labels, actual, predicted, upper, lower, chartId) {
+      return { tickVals, tickTexts };
+    }
+
+    function updatePlotlyChart(labels, actual, predicted, upper, lower, chartId) {
       const { tickVals, tickTexts } = computeTicks(labels);
       let maxDate = new Date(Math.max.apply(null, labels));
       let twoHoursAgo = new Date(maxDate.getTime() - 3 * 60 * 60 * 1000);
@@ -291,7 +287,7 @@
         title: { 
           text: chartId === "pressureChartBslg002" ? "Water Pressure Trends - BSLG-002" : "Water Pressure Trends - BSLG-003",
           font: { size: 18 },
-          pad: { b: 30 }  // bottom padding prevent overlap
+          pad: { b: 30 }  // Increase bottom padding to prevent overlap
         },
 
         height: 400,
@@ -313,9 +309,30 @@
       Plotly.newPlot(chartId, traces, layout, { responsive: true });
     }
 
-      fetchData();
-      setInterval(fetchData, 120000);
+    function fetchHeadLoss() {
+    fetch('/get_headloss')
+    .then(response => response.json())
+    .then(data => {
+        if (data["BSLG-002"]) {
+            document.getElementById('headloss-bslg-002').innerText = data["BSLG-002"].head_loss + " m³";
+            document.getElementById('calculation-time-bslg-002').innerText = data["BSLG-002"].latest_time;
+        }
+        if (data["BSLG-003"]) {
+            document.getElementById('headloss-bslg-003').innerText = data["BSLG-003"].head_loss + " m³";
+            document.getElementById('calculation-time-bslg-003').innerText = data["BSLG-003"].latest_time;
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching headloss data:', error);
+        document.getElementById('error-message').innerText = 'Error fetching headloss data';
+    });
+}
+
+// Fetch immediately when page loads
+ 
+    setInterval(fetchData, 300000);
+    fetchData();
+    fetchHeadLoss();
   </script>
-  
 </body>
 </html>
